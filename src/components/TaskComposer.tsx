@@ -9,6 +9,7 @@ interface TaskComposerProps {
   defaultDueBucket?: DueBucket;
   defaultProjectId?: string | null;
   inputRef?: React.RefObject<HTMLInputElement | null>;
+  onOpenAddProject?: () => void;
   onAddTask: (payload: {
     title: string;
     dueBucket: DueBucket;
@@ -26,12 +27,13 @@ export const TaskComposer: React.FC<TaskComposerProps> = ({
   defaultDueBucket = 'today',
   defaultProjectId = null,
   inputRef,
+  onOpenAddProject,
   onAddTask,
 }) => {
   const [title, setTitle] = useState('');
   const [dueBucket, setDueBucket] = useState<DueBucket>(defaultDueBucket);
   const [priority, setPriority] = useState<Priority>('medium');
-  const [projectId, setProjectId] = useState<string>(defaultProjectId || projects[0]?.id || 'product-launch');
+  const [projectId, setProjectId] = useState<string>(defaultProjectId || projects[0]?.id || '');
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [openPicker, setOpenPicker] = useState<'due' | 'priority' | 'project' | 'tag' | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,8 +41,10 @@ export const TaskComposer: React.FC<TaskComposerProps> = ({
   useEffect(() => {
     if (defaultProjectId) {
       setProjectId(defaultProjectId);
+    } else if (!projectId && projects.length > 0) {
+      setProjectId(projects[0].id);
     }
-  }, [defaultProjectId]);
+  }, [defaultProjectId, projects, projectId]);
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
@@ -187,25 +191,63 @@ export const TaskComposer: React.FC<TaskComposerProps> = ({
               </button>
 
               {openPicker === 'project' && (
-                <div className="absolute left-0 mt-1.5 w-44 rounded-xl border border-slate-200 dark:border-white/[0.1] bg-white dark:bg-[#1E1B28] shadow-lg p-1 z-30">
-                  {projects.map((proj) => (
-                    <button
-                      key={proj.id}
-                      type="button"
-                      onClick={() => {
-                        setProjectId(proj.id);
-                        setOpenPicker(null);
-                      }}
-                      className={`w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                        projectId === proj.id
-                          ? 'bg-violet-50 text-violet-700 dark:bg-violet-500/20 dark:text-violet-200'
-                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
-                      }`}
-                    >
-                      <span className={`w-2 h-2 rounded-full ${PROJECT_DOT_CLASSES[proj.color]}`} />
-                      <span className="truncate">{proj.name}</span>
-                    </button>
-                  ))}
+                <div className="absolute left-0 mt-1.5 w-52 rounded-xl border border-slate-200 dark:border-white/[0.1] bg-white dark:bg-[#1E1B28] shadow-lg p-1 z-30">
+                  {projects.length === 0 ? (
+                    <div className="p-2 text-center">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                        No projects yet.
+                      </p>
+                      {onOpenAddProject && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenPicker(null);
+                            onOpenAddProject();
+                          }}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Create Project</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      {projects.map((proj) => (
+                        <button
+                          key={proj.id}
+                          type="button"
+                          onClick={() => {
+                            setProjectId(proj.id);
+                            setOpenPicker(null);
+                          }}
+                          className={`w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            projectId === proj.id
+                              ? 'bg-violet-50 text-violet-700 dark:bg-violet-500/20 dark:text-violet-200'
+                              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${PROJECT_DOT_CLASSES[proj.color]}`} />
+                          <span className="truncate">{proj.name}</span>
+                        </button>
+                      ))}
+                      {onOpenAddProject && (
+                        <div className="pt-1 mt-1 border-t border-slate-100 dark:border-white/[0.06]">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenPicker(null);
+                              onOpenAddProject();
+                            }}
+                            className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-500/10 transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>New Project</span>
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -285,9 +327,15 @@ export const MobileAddTaskSheet: React.FC<MobileAddTaskSheetProps> = ({
   const [title, setTitle] = useState('');
   const [dueBucket, setDueBucket] = useState<DueBucket>('today');
   const [priority, setPriority] = useState<Priority>('medium');
-  const [projectId, setProjectId] = useState<string>(projects[0]?.id || 'product-launch');
+  const [projectId, setProjectId] = useState<string>(projects[0]?.id || '');
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [duration, setDuration] = useState<string>('');
+
+  useEffect(() => {
+    if (!projectId && projects.length > 0) {
+      setProjectId(projects[0].id);
+    }
+  }, [projects, projectId]);
 
   if (!open) return null;
 
@@ -377,11 +425,15 @@ export const MobileAddTaskSheet: React.FC<MobileAddTaskSheetProps> = ({
                 onChange={(e) => setProjectId(e.target.value)}
                 className="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-white/[0.1] bg-white dark:bg-[#1E1B28] text-xs font-medium text-slate-800 dark:text-slate-200"
               >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
+                {projects.length === 0 ? (
+                  <option value="">No projects</option>
+                ) : (
+                  projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))
+                )}
               </select>
             </label>
 

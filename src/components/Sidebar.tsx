@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   Sun,
+  Trash2,
 } from 'lucide-react';
 import { NavView, Project, ThemeMode } from '../types';
 import { PROJECT_DOT_CLASSES } from '../utils/styles';
@@ -29,6 +30,7 @@ interface SidebarProps {
   onToggleCollapse: () => void;
   onOpenCommandPalette: () => void;
   onOpenAddProject: () => void;
+  onDeleteProject?: (projectId: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -46,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   onOpenCommandPalette,
   onOpenAddProject,
+  onDeleteProject,
 }) => {
   if (collapsed) {
     return null;
@@ -76,7 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <LogoMark variant="circle" />
           <span className="text-[15px] font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
-            FocusFlow
+            Tasklight
           </span>
         </button>
 
@@ -157,19 +160,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {projects.map((project) => {
             const isSelected = selectedProjectId === project.id;
             return (
-              <button
+              <div
                 key={project.id}
-                type="button"
-                onClick={() => onSelectProject(isSelected ? null : project.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-xl text-[13.5px] transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                className={`group flex items-center justify-between rounded-xl px-3 py-1.5 transition-colors ${
                   isSelected
                     ? 'bg-violet-500/12 text-violet-700 dark:bg-violet-500/18 dark:text-violet-300 font-semibold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 dark:text-slate-300 dark:hover:text-white dark:hover:bg-white/[0.05] font-medium'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${PROJECT_DOT_CLASSES[project.color]}`} />
-                <span className="truncate">{project.name}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectProject(isSelected ? null : project.id)}
+                  className="flex-1 flex items-center gap-2.5 text-[13.5px] text-left truncate focus:outline-none"
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${PROJECT_DOT_CLASSES[project.color]}`} />
+                  <span className="truncate">{project.name}</span>
+                </button>
+                {onDeleteProject && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(`Delete project "${project.name}"?`)) {
+                        onDeleteProject(project.id);
+                      }
+                    }}
+                    aria-label={`Delete ${project.name}`}
+                    title="Delete project"
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-500 rounded transition-opacity"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>

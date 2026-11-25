@@ -190,10 +190,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 <Folder className="w-3.5 h-3.5" /> Project
               </span>
               <select
-                value={task.projectId}
+                value={task.projectId || ''}
                 onChange={(e) => onUpdateTask({ ...task, projectId: e.target.value })}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/[0.09] bg-white dark:bg-[#1B1825] text-xs font-medium text-slate-800 dark:text-slate-200"
               >
+                <option value="">No Project</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}

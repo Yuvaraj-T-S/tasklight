@@ -10,6 +10,7 @@ import {
   List,
   Plus,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { AddProjectModal } from './components/AddProjectModal';
@@ -25,8 +26,6 @@ import { TopBar } from './components/TopBar';
 import {
   AVAILABLE_TAGS,
   INITIAL_NOTIFICATIONS,
-  INITIAL_PROJECTS,
-  INITIAL_TASKS,
 } from './data/initialTasks';
 import {
   DueBucket,
@@ -41,11 +40,12 @@ import {
   ThemeMode,
 } from './types';
 import { PROJECT_DOT_CLASSES } from './utils/styles';
+import { useSupabaseCRUD } from './hooks/useSupabaseCRUD';
 
-const STORAGE_TASKS_KEY = 'focusflow-tasks-v1';
-const STORAGE_PROJECTS_KEY = 'focusflow-projects-v1';
-const STORAGE_THEME_KEY = 'focusflow-theme';
-const STORAGE_REFLECTION_KEY = 'focusflow-reflection-v1';
+const STORAGE_TASKS_KEY = 'tasklight-tasks-v1';
+const STORAGE_PROJECTS_KEY = 'tasklight-projects-v1';
+const STORAGE_THEME_KEY = 'tasklight-theme';
+const STORAGE_REFLECTION_KEY = 'tasklight-reflection-v1';
 
 const PRIORITY_WEIGHT: Record<Priority, number> = {
   urgent: 0,
@@ -62,6 +62,16 @@ const DUE_WEIGHT: Record<DueBucket, number> = {
 };
 
 export default function App() {
+  const {
+    fetchTasks,
+    insertTask: dbInsertTask,
+    updateTask: dbUpdateTask,
+    deleteTask: dbDeleteTask,
+    fetchProjects,
+    upsertProject: dbUpsertProject,
+    deleteProject: dbDeleteProject,
+    isSupabaseConfigured,
+  } = useSupabaseCRUD();
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(STORAGE_THEME_KEY);
@@ -72,6 +82,9 @@ export default function App() {
   });
 
   const [tasks, setTasks] = useState<Task[]>(() => {
+    // Start empty — Supabase will populate on mount.
+    // localStorage is used only when Supabase is not configured.
+    if (isSupabaseConfigured) return [];
     try {
       const raw = localStorage.getItem(STORAGE_TASKS_KEY);
       if (raw) {
@@ -79,12 +92,14 @@ export default function App() {
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {
-      // Fallback to initial tasks
+      // ignore
     }
-    return INITIAL_TASKS;
+    return [];
   });
 
   const [projects, setProjects] = useState<Project[]>(() => {
+    // Start empty — Supabase will populate on mount.
+    if (isSupabaseConfigured) return [];
     try {
       const raw = localStorage.getItem(STORAGE_PROJECTS_KEY);
       if (raw) {
@@ -92,9 +107,9 @@ export default function App() {
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {
-      // Fallback
+      // ignore
     }
-    return INITIAL_PROJECTS;
+    return [];
   });
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
@@ -105,6 +120,42 @@ export default function App() {
       return '';
     }
   });
+
+  // ── Supabase bootstrap: load tasks & projects from DB on mount ──────────────
+  const [dbLoading, setDbLoading] = useState(isSupabaseConfigured);
+  const [dbError, setDbError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    let cancelled = false;
+    setDbLoading(true);
+
+    (async () => {
+      try {
+        const [dbProjects, dbTasks] = await Promise.all([
+          fetchProjects(),
+          fetchTasks(),
+        ]);
+
+        if (cancelled) return;
+
+        // Load whatever is in the DB — no seeding, no fallback test data
+        if (dbProjects !== null) setProjects(dbProjects);
+        if (dbTasks !== null) setTasks(dbTasks);
+      } catch (err) {
+        if (!cancelled) {
+          setDbError('Could not reach Supabase. Check your .env credentials.');
+          console.error('[Tasklight] DB bootstrap error:', err);
+        }
+      } finally {
+        if (!cancelled) setDbLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [activeView, setActiveView] = useState<NavView>('today');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -265,6 +316,14 @@ export default function App() {
       )
     );
 
+    // Persist to Supabase
+    const updated = {
+      ...target,
+      completed: nextCompleted,
+      completedAt: nextCompleted ? nowTime : undefined,
+    };
+    dbUpdateTask(updated);
+
     showUndoToast(
       nextCompleted ? 'Task completed' : 'Task reopened',
       prevSnapshot
@@ -277,7 +336,10 @@ export default function App() {
       prev.map((t) => {
         if (t.id !== taskId) return t;
         const nextIdx = (order.indexOf(t.priority) + 1) % order.length;
-        return { ...t, priority: order[nextIdx] };
+        const updated = { ...t, priority: order[nextIdx] };
+        // Persist to Supabase
+        dbUpdateTask(updated);
+        return updated;
       })
     );
   };
@@ -305,16 +367,22 @@ export default function App() {
       createdAt: Date.now(),
     };
     setTasks((prev) => [newTask, ...prev]);
+    // Persist to Supabase
+    dbInsertTask(newTask);
   };
 
   const handleUpdateTask = (updated: Task) => {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    // Persist to Supabase
+    dbUpdateTask(updated);
   };
 
   const handleDeleteTask = (taskId: string) => {
     const prevSnapshot = tasks;
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     showUndoToast('Task deleted', prevSnapshot);
+    // Persist to Supabase
+    dbDeleteTask(taskId);
   };
 
   const handleMoveToTomorrow = (taskId: string) => {
@@ -329,8 +397,24 @@ export default function App() {
 
   const handleAddProject = (name: string, color: Project['color']) => {
     const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`;
-    setProjects((prev) => [...prev, { id, name, color }]);
+    const newProject: Project = { id, name, color };
+    setProjects((prev) => [...prev, newProject]);
     setSelectedProjectId(id);
+    // Persist to Supabase
+    dbUpsertProject(newProject);
+  };
+
+  const handleDeleteProject = (projectId: string) => {
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    if (selectedProjectId === projectId) {
+      setSelectedProjectId(null);
+    }
+    // Any tasks with this projectId have it cleared locally
+    setTasks((prev) =>
+      prev.map((t) => (t.projectId === projectId ? { ...t, projectId: '' } : t))
+    );
+    // Delete in Supabase
+    dbDeleteProject(projectId);
   };
 
   const handleSaveReflection = (note: string) => {
@@ -462,6 +546,25 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex bg-[#FAFAFC] dark:bg-[#0D0B12] text-slate-900 dark:text-[#F4F3F8] transition-colors duration-200">
+      {/* Supabase status banners */}
+      {dbLoading && (
+        <div className="fixed top-0 inset-x-0 z-[100] flex items-center justify-center gap-2 py-1.5 px-4 bg-violet-600 text-white text-xs font-medium">
+          <span className="animate-pulse">●</span>
+          <span>Syncing with Tasklight cloud…</span>
+        </div>
+      )}
+      {dbError && !dbLoading && (
+        <div className="fixed top-0 inset-x-0 z-[100] flex items-center justify-center gap-2 py-1.5 px-4 bg-amber-500 text-white text-xs font-medium">
+          <span>⚠ {dbError}</span>
+          <button
+            type="button"
+            onClick={() => setDbError(null)}
+            className="ml-2 underline underline-offset-2 hover:no-underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Desktop Left Sidebar */}
       <Sidebar
         activeView={activeView}
@@ -488,6 +591,7 @@ export default function App() {
         onToggleCollapse={() => setSidebarCollapsed(true)}
         onOpenCommandPalette={() => setCommandOpen(true)}
         onOpenAddProject={() => setAddProjectOpen(true)}
+        onDeleteProject={handleDeleteProject}
       />
 
       {/* Main Column */}
@@ -647,13 +751,15 @@ export default function App() {
                   const projTasks = tasks.filter((t) => t.projectId === proj.id);
                   const openProj = projTasks.filter((t) => !t.completed).length;
                   return (
-                    <button
+                    <div
                       key={proj.id}
-                      type="button"
-                      onClick={() => setSelectedProjectId(proj.id)}
-                      className="flex items-center justify-between p-4 rounded-2xl border border-slate-200/90 dark:border-white/[0.07] bg-white dark:bg-[#17151F] text-left hover:border-violet-300 dark:hover:border-violet-400/30 transition-colors"
+                      className="group flex items-center justify-between p-4 rounded-2xl border border-slate-200/90 dark:border-white/[0.07] bg-white dark:bg-[#17151F] text-left hover:border-violet-300 dark:hover:border-violet-400/30 transition-colors"
                     >
-                      <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProjectId(proj.id)}
+                        className="flex items-center gap-3 flex-1 text-left"
+                      >
                         <span className={`w-3 h-3 rounded-full ${PROJECT_DOT_CLASSES[proj.color]}`} />
                         <div>
                           <div className="text-sm font-semibold text-slate-900 dark:text-white">
@@ -663,9 +769,24 @@ export default function App() {
                             {openProj} active · {projTasks.length} total
                           </div>
                         </div>
+                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`Delete project "${proj.name}"?`)) {
+                              handleDeleteProject(proj.id);
+                            }
+                          }}
+                          aria-label={`Delete ${proj.name}`}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition-opacity"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400" />
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -679,6 +800,7 @@ export default function App() {
                   availableTags={AVAILABLE_TAGS}
                   defaultProjectId={selectedProjectId}
                   inputRef={composerInputRef}
+                  onOpenAddProject={() => setAddProjectOpen(true)}
                   onAddTask={handleAddTask}
                 />
               </div>
